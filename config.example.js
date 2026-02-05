@@ -1,0 +1,1 @@
+﻿export const GEMINI_API_KEY = "PASTE_API_KEY_HERE";

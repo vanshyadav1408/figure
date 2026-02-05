@@ -5,3 +5,4 @@ Thumbs.db
 *.zip
 *.pem
 .env
+config.js

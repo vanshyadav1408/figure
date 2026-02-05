@@ -1,5 +1,11 @@
-﻿const MAX_ELEMENTS = 120;
-const MAX_TEXT = 4000;
+﻿const DEFAULT_MAX_ELEMENTS = 120;
+const DEFAULT_MAX_TEXT = 4000;
+
+function normalizeLimit(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(parsed)));
+}
 
 function isVisible(element) {
   if (!element) return false;
@@ -71,7 +77,9 @@ function getSelector(element) {
   return path.join(" > ");
 }
 
-function collectPageState() {
+function collectPageState(options = {}) {
+  const maxElements = normalizeLimit(options.maxElements, DEFAULT_MAX_ELEMENTS, 10, 500);
+  const maxText = normalizeLimit(options.maxText, DEFAULT_MAX_TEXT, 0, 20000);
   const elements = [];
   const candidates = Array.from(
     document.querySelectorAll(
@@ -96,15 +104,18 @@ function collectPageState() {
       },
     });
 
-    if (elements.length >= MAX_ELEMENTS) break;
+    if (elements.length >= maxElements) break;
   }
 
   elements.sort((a, b) => (a.rect.y - b.rect.y) || (a.rect.x - b.rect.x));
 
-  const textSnippet = (document.body?.innerText || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_TEXT);
+  const textSnippet =
+    maxText > 0
+      ? (document.body?.innerText || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, maxText)
+      : "";
 
   return {
     url: location.href,
@@ -207,7 +218,7 @@ async function performAction(action) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "COLLECT_STATE") {
-    sendResponse(collectPageState());
+    sendResponse(collectPageState(message.options));
     return;
   }
 

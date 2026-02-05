@@ -3,18 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gemini Agent</title>
+    <title>Figure</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <header>
-      <div class="title">Gemini Agent</div>
+      <div class="title">Figure</div>
       <div class="subtitle">Visible tab only</div>
     </header>
 
     <section class="field">
-      <label for="apiKey">API Key</label>
-      <input id="apiKey" type="password" placeholder="Paste Gemini API key" />
+      <label for="apiKey">API Key (optional)</label>
+      <input id="apiKey" type="password" placeholder="Optional if config.js is present" />
     </section>
 
     <section class="field">
@@ -34,6 +34,13 @@
     </section>
 
     <section class="field">
+      <label class="checkbox">
+        <input id="fastMode" type="checkbox" />
+        Fast mode (skip screenshot, smaller DOM scan)
+      </label>
+    </section>
+
+    <section class="field">
       <label for="instruction">Task</label>
       <textarea id="instruction" rows="4" placeholder="Describe the task to perform in the current tab"></textarea>
     </section>
@@ -43,6 +50,11 @@
       <button id="stopBtn">Stop</button>
       <button id="clearBtn">Clear</button>
     </div>
+
+    <section class="field">
+      <label>Elapsed</label>
+      <div id="elapsed" class="elapsed">00:00</div>
+    </section>
 
     <section class="log">
       <label>Log</label>

@@ -1,8 +1,28 @@
 ﻿const DEFAULTS = {
   model: "gemini-3-flash-preview",
   maxSteps: 8,
-  stepDelayMs: 700,
+  stepDelayMs: 0,
+  fastMode: true,
 };
+
+let cachedEnvKey = null;
+
+async function loadEnvApiKey() {
+  if (cachedEnvKey !== null) {
+    return cachedEnvKey;
+  }
+
+  try {
+    const url = chrome.runtime.getURL("config.js");
+    const mod = await import(url);
+    const key = typeof mod.GEMINI_API_KEY === "string" ? mod.GEMINI_API_KEY.trim() : "";
+    cachedEnvKey = key;
+    return key;
+  } catch (error) {
+    cachedEnvKey = "";
+    return "";
+  }
+}
 
 const RESPONSE_SCHEMA = {
   type: "object",
@@ -42,6 +62,8 @@ let runState = {
   stopRequested: false,
   tabId: null,
   logs: [],
+  startedAt: null,
+  stoppedAt: null,
 };
 
 function log(entry) {
@@ -49,6 +71,16 @@ function log(entry) {
   const line = `[${timestamp}] ${entry}`;
   runState.logs.push(line);
   chrome.runtime.sendMessage({ type: "AGENT_LOG", entry: line });
+}
+
+function sendStatus() {
+  chrome.runtime.sendMessage({
+    type: "AGENT_STATUS",
+    running: runState.running,
+    startedAt: runState.startedAt,
+    stoppedAt: runState.stoppedAt,
+    logs: runState.logs,
+  });
 }
 
 function chromeCall(fn, ...args) {
@@ -65,18 +97,21 @@ function chromeCall(fn, ...args) {
 }
 
 async function getSettings() {
+  const envApiKey = await loadEnvApiKey();
   const data = await chromeCall(chrome.storage.local.get.bind(chrome.storage.local), [
     "apiKey",
     "model",
     "maxSteps",
     "stepDelayMs",
+    "fastMode",
   ]);
 
   return {
-    apiKey: data.apiKey || "",
+    apiKey: envApiKey || data.apiKey || "",
     model: data.model || DEFAULTS.model,
     maxSteps: data.maxSteps ?? DEFAULTS.maxSteps,
     stepDelayMs: data.stepDelayMs ?? DEFAULTS.stepDelayMs,
+    fastMode: data.fastMode ?? DEFAULTS.fastMode,
   };
 }
 
@@ -132,9 +167,13 @@ async function captureScreenshot(tabId) {
   return base64 || null;
 }
 
-function buildPrompt(instruction, state, step, maxSteps) {
+function buildPrompt(instruction, state, step, maxSteps, hasScreenshot) {
   const safeElements = Array.isArray(state.elements) ? state.elements : [];
   const header = `Task: ${instruction}\nStep: ${step}/${maxSteps}\nURL: ${state.url}\nTitle: ${state.title}\nViewport: ${state.viewport.width}x${state.viewport.height} (scroll ${state.viewport.scrollX},${state.viewport.scrollY})`;
+
+  const screenshotNote = hasScreenshot
+    ? "A screenshot of the current viewport is provided."
+    : "No screenshot is available; rely on the element list and text.";
 
   const elementLines = safeElements
     .slice(0, 80)
@@ -146,12 +185,14 @@ function buildPrompt(instruction, state, step, maxSteps) {
 
   const rules = [
     "You are a browser automation agent.",
-    "Use the elements list (selectors + labels) and the screenshot to decide the next actions.",
+    "Use the elements list (selectors + labels) to decide the next actions.",
+    screenshotNote,
     "Return only JSON that matches the schema. No extra commentary.",
     "Allowed action types: click, type, scroll, wait, key, finish.",
     "For click/type, prefer selector. Use text only when selector is unavailable.",
     "If the task is complete, set done=true and provide final summary in 'final'.",
     "Avoid destructive actions (delete, submit payment) unless the task explicitly asks.",
+    "If you get a multiple choice step, click 5-6 correct button simultaneously and then submit.",
   ].join(" ");
 
   const textSnippet = state.textSnippet
@@ -241,7 +282,7 @@ async function runAgent(tabId, instruction) {
 
   const settings = await getSettings();
   if (!settings.apiKey) {
-    log("Missing API key. Add it in the popup.");
+    log("Missing API key. Add it in the popup or generate config.js.");
     return;
   }
 
@@ -250,7 +291,14 @@ async function runAgent(tabId, instruction) {
     stopRequested: false,
     tabId,
     logs: runState.logs,
+    startedAt: Date.now(),
+    stoppedAt: null,
   };
+  sendStatus();
+
+  const collectOptions = settings.fastMode
+    ? { maxElements: 60, maxText: 0 }
+    : { maxElements: 120, maxText: 4000 };
 
   log("Injecting content script...");
   const injected = await ensureContentScript(tabId);
@@ -264,21 +312,36 @@ async function runAgent(tabId, instruction) {
 
     log(`Collecting state (step ${step}/${settings.maxSteps})...`);
     let state;
+    let screenshot = null;
     try {
-      state = await sendToTab(tabId, { type: "COLLECT_STATE" });
+      const statePromise = sendToTab(tabId, {
+        type: "COLLECT_STATE",
+        options: collectOptions,
+      });
+      const screenshotPromise = settings.fastMode
+        ? Promise.resolve(null)
+        : captureScreenshot(tabId);
+      const [stateResult, screenshotResult] = await Promise.all([
+        statePromise,
+        screenshotPromise.catch((error) => {
+          log(`Screenshot failed: ${error.message}`);
+          return null;
+        }),
+      ]);
+      state = stateResult;
+      screenshot = screenshotResult;
     } catch (error) {
       log(`State collection failed: ${error.message}`);
       break;
     }
 
-    let screenshot = null;
-    try {
-      screenshot = await captureScreenshot(tabId);
-    } catch (error) {
-      log(`Screenshot failed: ${error.message}`);
-    }
-
-    const promptText = buildPrompt(instruction, state, step, settings.maxSteps);
+    const promptText = buildPrompt(
+      instruction,
+      state,
+      step,
+      settings.maxSteps,
+      Boolean(screenshot)
+    );
 
     let modelResponse;
     try {
@@ -342,6 +405,8 @@ async function runAgent(tabId, instruction) {
 
   runState.running = false;
   runState.stopRequested = false;
+  runState.stoppedAt = Date.now();
+  sendStatus();
   log("Agent stopped.");
 }
 
@@ -354,20 +419,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "POPUP_STOP") {
     runState.stopRequested = true;
+    sendStatus();
     sendResponse({ ok: true });
     return true;
   }
 
   if (message.type === "POPUP_GET_STATUS") {
-    sendResponse({ running: runState.running, logs: runState.logs });
+    sendResponse({
+      running: runState.running,
+      logs: runState.logs,
+      startedAt: runState.startedAt,
+      stoppedAt: runState.stoppedAt,
+    });
     return true;
   }
 
   if (message.type === "POPUP_CLEAR_LOG") {
     runState.logs = [];
+    sendStatus();
     sendResponse({ ok: true });
     return true;
   }
 
   return false;
 });
+
+
+
+
+
+
+

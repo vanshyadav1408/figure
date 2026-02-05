@@ -52,6 +52,18 @@ header {
   color: var(--muted);
 }
 
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.checkbox input {
+  transform: translateY(1px);
+}
+
 .field input,
 .field textarea {
   border: 1px solid var(--border);
@@ -107,6 +119,16 @@ button:disabled {
 
 .log {
   margin-bottom: 12px;
+}
+
+#elapsed {
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 #log {
