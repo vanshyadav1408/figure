@@ -1,0 +1,58 @@
+﻿<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gemini Agent</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title">Gemini Agent</div>
+      <div class="subtitle">Visible tab only</div>
+    </header>
+
+    <section class="field">
+      <label for="apiKey">API Key</label>
+      <input id="apiKey" type="password" placeholder="Paste Gemini API key" />
+    </section>
+
+    <section class="field">
+      <label for="model">Model</label>
+      <input id="model" type="text" placeholder="gemini-3-flash-preview" />
+    </section>
+
+    <section class="field row">
+      <div class="col">
+        <label for="maxSteps">Max steps</label>
+        <input id="maxSteps" type="number" min="1" max="20" />
+      </div>
+      <div class="col">
+        <label for="stepDelayMs">Delay (ms)</label>
+        <input id="stepDelayMs" type="number" min="0" max="5000" />
+      </div>
+    </section>
+
+    <section class="field">
+      <label for="instruction">Task</label>
+      <textarea id="instruction" rows="4" placeholder="Describe the task to perform in the current tab"></textarea>
+    </section>
+
+    <div class="buttons">
+      <button id="runBtn" class="primary">Run</button>
+      <button id="stopBtn">Stop</button>
+      <button id="clearBtn">Clear</button>
+    </div>
+
+    <section class="log">
+      <label>Log</label>
+      <pre id="log"></pre>
+    </section>
+
+    <footer>
+      Avoid sensitive sites. The agent will read the visible page.
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
